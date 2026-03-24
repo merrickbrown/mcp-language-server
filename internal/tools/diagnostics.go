@@ -21,7 +21,7 @@ func GetDiagnosticsForFile(ctx context.Context, client *lsp.Client, filePath str
 		}
 	}
 
-	err := client.OpenFile(ctx, filePath)
+	err := client.SyncFile(ctx, filePath)
 	if err != nil {
 		return "", fmt.Errorf("could not open file: %v", err)
 	}

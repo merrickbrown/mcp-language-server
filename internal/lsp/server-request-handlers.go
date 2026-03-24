@@ -81,6 +81,30 @@ func HandleApplyEdit(params json.RawMessage) (any, error) {
 	}, nil
 }
 
+// collectAffectedURIs returns all document URIs affected by a workspace edit.
+func collectAffectedURIs(edit protocol.WorkspaceEdit) []protocol.DocumentUri {
+	seen := make(map[protocol.DocumentUri]bool)
+	for uri := range edit.Changes {
+		seen[uri] = true
+	}
+	for _, dc := range edit.DocumentChanges {
+		if dc.TextDocumentEdit != nil {
+			seen[dc.TextDocumentEdit.TextDocument.URI] = true
+		}
+		if dc.CreateFile != nil {
+			seen[protocol.DocumentUri(dc.CreateFile.URI)] = true
+		}
+		if dc.RenameFile != nil {
+			seen[protocol.DocumentUri(dc.RenameFile.NewURI)] = true
+		}
+	}
+	uris := make([]protocol.DocumentUri, 0, len(seen))
+	for uri := range seen {
+		uris = append(uris, uri)
+	}
+	return uris
+}
+
 func workspaceEditFailure(err error) string {
 	if err == nil {
 		return ""

@@ -113,7 +113,11 @@ func (s *mcpServer) initializeLSP() error {
 		s.workspaceWatcher = watcher.NewWorkspaceWatcher(client)
 	}
 
-	initResult, err := client.InitializeLSPClient(s.ctx, s.config.workspaceDir)
+	// Use a timeout for initialization. When connected to a daemon the cached
+	// response is nearly instant; a long wait means something is stuck.
+	initCtx, initCancel := context.WithTimeout(s.ctx, 2*time.Minute)
+	defer initCancel()
+	initResult, err := client.InitializeLSPClient(initCtx, s.config.workspaceDir)
 	if err != nil {
 		return fmt.Errorf("initialize failed: %v", err)
 	}

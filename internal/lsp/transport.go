@@ -223,13 +223,18 @@ func (c *Client) Call(ctx context.Context, method string, params any, result any
 
 	lspLogger.Debug("Waiting for response to request ID: %v", msg.ID)
 
-	// Wait for response
-	resp := <-ch
+	// Wait for response, respecting context cancellation
+	var resp *Message
+	select {
+	case resp = <-ch:
+	case <-ctx.Done():
+		return fmt.Errorf("request %s (id=%v) cancelled: %w", method, msg.ID, ctx.Err())
+	}
 
 	lspLogger.Debug("Received response for request ID: %v", msg.ID)
 
 	if resp.Error != nil {
-		lspLogger.Error("Request failed: %s (code: %d)", resp.Error.Message, resp.Error.Code)
+		lspLogger.Error("Request %s failed: %s (code: %d)", method, resp.Error.Message, resp.Error.Code)
 		return fmt.Errorf("request failed: %s (code: %d)", resp.Error.Message, resp.Error.Code)
 	}
 

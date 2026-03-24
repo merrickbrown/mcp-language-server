@@ -185,70 +185,257 @@ func (s *mcpServer) registerTools() error {
 		return mcp.NewToolResultText(text), nil
 	})
 
-	// Uncomment to add codelens tools
-	//
-	// getCodeLensTool := mcp.NewTool("get_codelens",
-	// 	mcp.WithDescription("Get code lens hints for a given file from the language server."),
-	// 	mcp.WithString("filePath",
-	// 		mcp.Required(),
-	// 		mcp.Description("The path to the file to get code lens information for"),
-	// 	),
-	// )
-	//
-	// s.mcpServer.AddTool(getCodeLensTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// 	// Extract arguments
-	// 	filePath, ok := request.Params.Arguments["filePath"].(string)
-	// 	if !ok {
-	// 		return mcp.NewToolResultError("filePath must be a string"), nil
-	// 	}
-	//
-	// 	coreLogger.Debug("Executing get_codelens for file: %s", filePath)
-	// 	text, err := tools.GetCodeLens(s.ctx, s.lspClient, filePath)
-	// 	if err != nil {
-	// 		coreLogger.Error("Failed to get code lens: %v", err)
-	// 		return mcp.NewToolResultError(fmt.Sprintf("failed to get code lens: %v", err)), nil
-	// 	}
-	// 	return mcp.NewToolResultText(text), nil
-	// })
-	//
-	// executeCodeLensTool := mcp.NewTool("execute_codelens",
-	// 	mcp.WithDescription("Execute a code lens command for a given file and lens index."),
-	// 	mcp.WithString("filePath",
-	// 		mcp.Required(),
-	// 		mcp.Description("The path to the file containing the code lens to execute"),
-	// 	),
-	// 	mcp.WithNumber("index",
-	// 		mcp.Required(),
-	// 		mcp.Description("The index of the code lens to execute (from get_codelens output), 1 indexed"),
-	// 	),
-	// )
-	//
-	// s.mcpServer.AddTool(executeCodeLensTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// 	// Extract arguments
-	// 	filePath, ok := request.Params.Arguments["filePath"].(string)
-	// 	if !ok {
-	// 		return mcp.NewToolResultError("filePath must be a string"), nil
-	// 	}
-	//
-	// 	// Handle both float64 and int for index due to JSON parsing
-	// 	var index int
-	// 	switch v := request.Params.Arguments["index"].(type) {
-	// 	case float64:
-	// 		index = int(v)
-	// 	case int:
-	// 		index = v
-	// 	default:
-	// 		return mcp.NewToolResultError("index must be a number"), nil
-	// 	}
-	//
-	// 	coreLogger.Debug("Executing execute_codelens for file: %s index: %d", filePath, index)
-	// 	text, err := tools.ExecuteCodeLens(s.ctx, s.lspClient, filePath, index)
-	// 	if err != nil {
-	// 		coreLogger.Error("Failed to execute code lens: %v", err)
-	// 		return mcp.NewToolResultError(fmt.Sprintf("failed to execute code lens: %v", err)), nil
-	// 	}
-	// 	return mcp.NewToolResultText(text), nil
-	// })
+	getCodeLensTool := mcp.NewTool("get_codelens",
+		mcp.WithDescription("Get code lens hints for a given file from the language server."),
+		mcp.WithString("filePath",
+			mcp.Required(),
+			mcp.Description("The path to the file to get code lens information for"),
+		),
+	)
+
+	s.mcpServer.AddTool(getCodeLensTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, ok := request.Params.Arguments["filePath"].(string)
+		if !ok {
+			return mcp.NewToolResultError("filePath must be a string"), nil
+		}
+
+		coreLogger.Debug("Executing get_codelens for file: %s", filePath)
+		text, err := tools.GetCodeLens(s.ctx, s.lspClient, filePath)
+		if err != nil {
+			coreLogger.Error("Failed to get code lens: %v", err)
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get code lens: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	executeCodeLensTool := mcp.NewTool("execute_codelens",
+		mcp.WithDescription("Execute a code lens command for a given file and lens index."),
+		mcp.WithString("filePath",
+			mcp.Required(),
+			mcp.Description("The path to the file containing the code lens to execute"),
+		),
+		mcp.WithNumber("index",
+			mcp.Required(),
+			mcp.Description("The index of the code lens to execute (from get_codelens output), 1 indexed"),
+		),
+	)
+
+	s.mcpServer.AddTool(executeCodeLensTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, ok := request.Params.Arguments["filePath"].(string)
+		if !ok {
+			return mcp.NewToolResultError("filePath must be a string"), nil
+		}
+
+		var index int
+		switch v := request.Params.Arguments["index"].(type) {
+		case float64:
+			index = int(v)
+		case int:
+			index = v
+		default:
+			return mcp.NewToolResultError("index must be a number"), nil
+		}
+
+		coreLogger.Debug("Executing execute_codelens for file: %s index: %d", filePath, index)
+		text, err := tools.ExecuteCodeLens(s.ctx, s.lspClient, filePath, index)
+		if err != nil {
+			coreLogger.Error("Failed to execute code lens: %v", err)
+			return mcp.NewToolResultError(fmt.Sprintf("failed to execute code lens: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	codeActionsTool := mcp.NewTool("code_actions",
+		mcp.WithDescription("List available code actions (refactorings, quick fixes) at the specified position or range in a file."),
+		mcp.WithString("filePath",
+			mcp.Required(),
+			mcp.Description("The path to the file"),
+		),
+		mcp.WithNumber("line",
+			mcp.Required(),
+			mcp.Description("The start line number (1-indexed)"),
+		),
+		mcp.WithNumber("column",
+			mcp.Required(),
+			mcp.Description("The start column number (1-indexed)"),
+		),
+		mcp.WithNumber("endLine",
+			mcp.Description("The end line number (1-indexed). Defaults to line."),
+		),
+		mcp.WithNumber("endColumn",
+			mcp.Description("The end column number (1-indexed). Defaults to column."),
+		),
+	)
+
+	s.mcpServer.AddTool(codeActionsTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, ok := request.Params.Arguments["filePath"].(string)
+		if !ok {
+			return mcp.NewToolResultError("filePath must be a string"), nil
+		}
+
+		var line, column int
+		switch v := request.Params.Arguments["line"].(type) {
+		case float64:
+			line = int(v)
+		case int:
+			line = v
+		default:
+			return mcp.NewToolResultError("line must be a number"), nil
+		}
+
+		switch v := request.Params.Arguments["column"].(type) {
+		case float64:
+			column = int(v)
+		case int:
+			column = v
+		default:
+			return mcp.NewToolResultError("column must be a number"), nil
+		}
+
+		endLine := line
+		if v, ok := request.Params.Arguments["endLine"]; ok && v != nil {
+			switch val := v.(type) {
+			case float64:
+				endLine = int(val)
+			case int:
+				endLine = val
+			}
+		}
+
+		endColumn := column
+		if v, ok := request.Params.Arguments["endColumn"]; ok && v != nil {
+			switch val := v.(type) {
+			case float64:
+				endColumn = int(val)
+			case int:
+				endColumn = val
+			}
+		}
+
+		coreLogger.Debug("Executing code_actions for file: %s L%d:C%d-L%d:C%d", filePath, line, column, endLine, endColumn)
+		text, err := tools.GetCodeActions(s.ctx, s.lspClient, filePath, line, column, endLine, endColumn)
+		if err != nil {
+			coreLogger.Error("Failed to get code actions: %v", err)
+			return mcp.NewToolResultError(fmt.Sprintf("failed to get code actions: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	executeCodeActionTool := mcp.NewTool("execute_code_action",
+		mcp.WithDescription("Execute a code action (refactoring, quick fix) by title at the specified position or range."),
+		mcp.WithString("filePath",
+			mcp.Required(),
+			mcp.Description("The path to the file"),
+		),
+		mcp.WithNumber("line",
+			mcp.Required(),
+			mcp.Description("The start line number (1-indexed)"),
+		),
+		mcp.WithNumber("column",
+			mcp.Required(),
+			mcp.Description("The start column number (1-indexed)"),
+		),
+		mcp.WithString("actionTitle",
+			mcp.Required(),
+			mcp.Description("The title of the code action to execute (exact or substring match, case-insensitive)"),
+		),
+		mcp.WithNumber("endLine",
+			mcp.Description("The end line number (1-indexed). Defaults to line."),
+		),
+		mcp.WithNumber("endColumn",
+			mcp.Description("The end column number (1-indexed). Defaults to column."),
+		),
+	)
+
+	s.mcpServer.AddTool(executeCodeActionTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		filePath, ok := request.Params.Arguments["filePath"].(string)
+		if !ok {
+			return mcp.NewToolResultError("filePath must be a string"), nil
+		}
+
+		actionTitle, ok := request.Params.Arguments["actionTitle"].(string)
+		if !ok {
+			return mcp.NewToolResultError("actionTitle must be a string"), nil
+		}
+
+		var line, column int
+		switch v := request.Params.Arguments["line"].(type) {
+		case float64:
+			line = int(v)
+		case int:
+			line = v
+		default:
+			return mcp.NewToolResultError("line must be a number"), nil
+		}
+
+		switch v := request.Params.Arguments["column"].(type) {
+		case float64:
+			column = int(v)
+		case int:
+			column = v
+		default:
+			return mcp.NewToolResultError("column must be a number"), nil
+		}
+
+		endLine := line
+		if v, ok := request.Params.Arguments["endLine"]; ok && v != nil {
+			switch val := v.(type) {
+			case float64:
+				endLine = int(val)
+			case int:
+				endLine = val
+			}
+		}
+
+		endColumn := column
+		if v, ok := request.Params.Arguments["endColumn"]; ok && v != nil {
+			switch val := v.(type) {
+			case float64:
+				endColumn = int(val)
+			case int:
+				endColumn = val
+			}
+		}
+
+		coreLogger.Debug("Executing execute_code_action for file: %s action: %s", filePath, actionTitle)
+		text, err := tools.ExecuteCodeAction(s.ctx, s.lspClient, filePath, line, column, endLine, endColumn, actionTitle)
+		if err != nil {
+			coreLogger.Error("Failed to execute code action: %v", err)
+			return mcp.NewToolResultError(fmt.Sprintf("failed to execute code action: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
+
+	executeCommandTool := mcp.NewTool("execute_command",
+		mcp.WithDescription("Execute a workspace command on the language server (e.g. clojure-lsp-server-info, clean-ns)."),
+		mcp.WithString("command",
+			mcp.Required(),
+			mcp.Description("The command identifier to execute"),
+		),
+		mcp.WithString("arguments",
+			mcp.Description("JSON array of arguments for the command (e.g. '[\"file:///path/to/file.clj\", 1, 2]')"),
+		),
+	)
+
+	s.mcpServer.AddTool(executeCommandTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		command, ok := request.Params.Arguments["command"].(string)
+		if !ok {
+			return mcp.NewToolResultError("command must be a string"), nil
+		}
+
+		arguments := ""
+		if v, ok := request.Params.Arguments["arguments"].(string); ok {
+			arguments = v
+		}
+
+		coreLogger.Debug("Executing execute_command: %s", command)
+		text, err := tools.ExecuteWorkspaceCommand(s.ctx, s.lspClient, command, arguments)
+		if err != nil {
+			coreLogger.Error("Failed to execute command: %v", err)
+			return mcp.NewToolResultError(fmt.Sprintf("failed to execute command: %v", err)), nil
+		}
+		return mcp.NewToolResultText(text), nil
+	})
 
 	hoverTool := mcp.NewTool("hover",
 		mcp.WithDescription("Get hover information (type, documentation) for a symbol at the specified position."),

@@ -107,9 +107,24 @@ func NewClient(command string, args ...string) (*Client, error) {
 // started and stderr is not read. For gopls, start the server with -listen=:6061 so it
 // accepts LSP connections on that port (--debug is for the debug HTTP server, not LSP).
 func NewClientHeadless(addr string) (*Client, error) {
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to LSP at %s: %w", addr, err)
+	// Retry connection with backoff — the daemon may still be initializing.
+	var conn net.Conn
+	var err error
+	const maxAttempts = 30
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		conn, err = net.DialTimeout("tcp", addr, 5*time.Second)
+		if err == nil {
+			break
+		}
+		if attempt == maxAttempts {
+			return nil, fmt.Errorf("failed to connect to LSP at %s after %d attempts: %w", addr, maxAttempts, err)
+		}
+		backoff := time.Duration(attempt) * time.Second
+		if backoff > 10*time.Second {
+			backoff = 10 * time.Second
+		}
+		lspLogger.Info("Connection to %s failed (attempt %d/%d), retrying in %v: %v", addr, attempt, maxAttempts, backoff, err)
+		time.Sleep(backoff)
 	}
 
 	client := &Client{
@@ -189,6 +204,9 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 								ValueSet: []protocol.CodeActionKind{},
 							},
 						},
+						ResolveSupport: &protocol.ClientCodeActionResolveOptions{
+							Properties: []string{"edit"},
+						},
 					},
 					PublishDiagnostics: protocol.PublishDiagnosticsClientCapabilities{
 						VersionSupport: true,
@@ -228,8 +246,29 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 		return nil, fmt.Errorf("initialized notification failed: %w", err)
 	}
 
-	// Register handlers
-	c.RegisterServerRequestHandler("workspace/applyEdit", HandleApplyEdit)
+	// Register handlers — wrap HandleApplyEdit to sync open files after edits
+	c.RegisterServerRequestHandler("workspace/applyEdit", func(params json.RawMessage) (any, error) {
+		result, err := HandleApplyEdit(params)
+		if err != nil {
+			return result, err
+		}
+		// After applying edits, notify the LSP about changed files so its
+		// buffer stays in sync. Without this, subsequent operations (code
+		// actions, hover) operate on stale content.
+		var editParams protocol.ApplyWorkspaceEditParams
+		if json.Unmarshal(params, &editParams) == nil {
+			affectedURIs := collectAffectedURIs(editParams.Edit)
+			for _, uri := range affectedURIs {
+				path := strings.TrimPrefix(string(uri), "file://")
+				if c.IsFileOpen(path) {
+					if notifyErr := c.NotifyChange(ctx, path); notifyErr != nil {
+						lspLogger.Warn("Failed to notify change for %s: %v", path, notifyErr)
+					}
+				}
+			}
+		}
+		return result, err
+	})
 	c.RegisterServerRequestHandler("workspace/configuration", HandleWorkspaceConfiguration)
 	c.RegisterServerRequestHandler("client/registerCapability", HandleRegisterCapability)
 	c.RegisterNotificationHandler("window/showMessage", HandleServerMessage)
@@ -323,6 +362,17 @@ func (c *Client) WaitForServerReady(ctx context.Context) error {
 type OpenFileInfo struct {
 	Version int32
 	URI     protocol.DocumentUri
+}
+
+// SyncFile ensures the LSP has the latest disk content for a file.
+// Opens the file if not already open, or sends didChange if it is.
+// Call this before any tool operation to pick up external edits
+// (e.g. from Claude's built-in Edit/Write tools).
+func (c *Client) SyncFile(ctx context.Context, filepath string) error {
+	if c.IsFileOpen(filepath) {
+		return c.NotifyChange(ctx, filepath)
+	}
+	return c.OpenFile(ctx, filepath)
 }
 
 func (c *Client) OpenFile(ctx context.Context, filepath string) error {

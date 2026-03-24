@@ -20,7 +20,7 @@ type TextEdit struct {
 }
 
 func ApplyTextEdits(ctx context.Context, client *lsp.Client, filePath string, edits []TextEdit) (string, error) {
-	err := client.OpenFile(ctx, filePath)
+	err := client.SyncFile(ctx, filePath)
 	if err != nil {
 		return "", fmt.Errorf("could not open file: %v", err)
 	}
@@ -80,6 +80,13 @@ func ApplyTextEdits(ctx context.Context, client *lsp.Client, filePath string, ed
 
 	if err := utilities.ApplyWorkspaceEdit(edit); err != nil {
 		return "", fmt.Errorf("failed to apply text edits: %v", err)
+	}
+
+	// Notify the LSP about the change (headless mode has no file watcher)
+	if client.IsFileOpen(filePath) {
+		if err := client.NotifyChange(ctx, filePath); err != nil {
+			toolsLogger.Warn("Failed to notify change for %s: %v", filePath, err)
+		}
 	}
 
 	return fmt.Sprintf("Successfully applied text edits. %d lines removed, %d lines added.", linesRemovedSorted, linesAddedSorted), nil

@@ -12,7 +12,7 @@ import (
 // GetHoverInfo retrieves hover information (type, documentation) for a symbol at the specified position
 func GetHoverInfo(ctx context.Context, client *lsp.Client, filePath string, line, column int) (string, error) {
 	// Open the file if not already open
-	err := client.OpenFile(ctx, filePath)
+	err := client.SyncFile(ctx, filePath)
 	if err != nil {
 		return "", fmt.Errorf("could not open file: %v", err)
 	}

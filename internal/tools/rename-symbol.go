@@ -15,7 +15,7 @@ import (
 // It uses the LSP rename functionality to handle all references across files
 func RenameSymbol(ctx context.Context, client *lsp.Client, filePath string, line, column int, newName string) (string, error) {
 	// Open the file if not already open
-	err := client.OpenFile(ctx, filePath)
+	err := client.SyncFile(ctx, filePath)
 	if err != nil {
 		return "", fmt.Errorf("could not open file: %v", err)
 	}
@@ -115,6 +115,16 @@ func RenameSymbol(ctx context.Context, client *lsp.Client, filePath string, line
 	// Apply the workspace edit to files:workspaceEdit
 	if err := utilities.ApplyWorkspaceEdit(workspaceEdit); err != nil {
 		return "", fmt.Errorf("failed to apply changes: %v", err)
+	}
+
+	// Notify the LSP about changed files (headless mode has no file watcher)
+	for _, change := range allChanges {
+		path := strings.TrimPrefix(change.URI, "file://")
+		if client.IsFileOpen(path) {
+			if err := client.NotifyChange(ctx, path); err != nil {
+				toolsLogger.Warn("Failed to notify change for %s: %v", path, err)
+			}
+		}
 	}
 
 	if fileCount == 0 || changeCount == 0 {

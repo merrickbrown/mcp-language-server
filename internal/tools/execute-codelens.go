@@ -12,7 +12,7 @@ import (
 // ExecuteCodeLens executes a specific code lens command from a file.
 func ExecuteCodeLens(ctx context.Context, client *lsp.Client, filePath string, index int) (string, error) {
 	// Open the file
-	err := client.OpenFile(ctx, filePath)
+	err := client.SyncFile(ctx, filePath)
 	if err != nil {
 		return "", fmt.Errorf("could not open file: %v", err)
 	}

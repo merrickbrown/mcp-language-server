@@ -12,7 +12,7 @@ import (
 
 // GetCodeLens retrieves code lens hints for a given file location
 func GetCodeLens(ctx context.Context, client *lsp.Client, filePath string) (string, error) {
-	err := client.OpenFile(ctx, filePath)
+	err := client.SyncFile(ctx, filePath)
 	if err != nil {
 		return "", fmt.Errorf("could not open file: %v", err)
 	}
