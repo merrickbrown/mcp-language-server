@@ -189,19 +189,31 @@ func ExecuteCodeAction(ctx context.Context, client *lsp.Client, filePath string,
 		return fmt.Sprintf("Successfully executed command: %s", matchedCommand.Title), nil
 	}
 
-	// Debug: log which fields are set on the matched action
-	toolsLogger.Debug("Code action %q: Edit=%v, Command=%v, Data=%v",
+	// Log which fields are set on the matched action
+	toolsLogger.Info("Code action %q: Edit=%v, Command=%v, Data=%v",
 		matched.Title, matched.Edit != nil, matched.Command != nil, matched.Data != nil)
 
 	// Lazy resolution: if Edit is nil but Data is present, resolve the action
 	if matched.Edit == nil && matched.Data != nil {
-		toolsLogger.Debug("Resolving code action %q (has Data, no Edit)", matched.Title)
+		toolsLogger.Info("Resolving code action %q (has Data, no Edit)", matched.Title)
 		resolved, err := client.ResolveCodeAction(ctx, *matched)
 		if err != nil {
 			return "", fmt.Errorf("failed to resolve code action %q: %v", matched.Title, err)
 		}
 		matched = &resolved
-		toolsLogger.Debug("After resolve: Edit=%v, Command=%v", matched.Edit != nil, matched.Command != nil)
+		toolsLogger.Info("After resolve: Edit=%v, Command=%v", matched.Edit != nil, matched.Command != nil)
+	}
+
+	// If still no Edit and no Command, try resolving unconditionally
+	if matched.Edit == nil && matched.Command == nil {
+		toolsLogger.Info("No Edit or Command — attempting unconditional resolve")
+		resolved, err := client.ResolveCodeAction(ctx, *matched)
+		if err != nil {
+			toolsLogger.Warn("Unconditional resolve failed: %v", err)
+		} else {
+			matched = &resolved
+			toolsLogger.Info("After unconditional resolve: Edit=%v, Command=%v", matched.Edit != nil, matched.Command != nil)
+		}
 	}
 
 	// Track affected files for NotifyChange

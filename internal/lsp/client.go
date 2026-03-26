@@ -364,6 +364,23 @@ type OpenFileInfo struct {
 	URI     protocol.DocumentUri
 }
 
+// absPath resolves a filepath to an absolute path.
+// Needed because the MCP server chdir's to the workspace,
+// but file:// URIs must always be absolute.
+func absPath(filepath string) string {
+	if !strings.HasPrefix(filepath, "/") {
+		if abs, err := os.Getwd(); err == nil {
+			return abs + "/" + filepath
+		}
+	}
+	return filepath
+}
+
+// fileURI returns a file:// URI for the given path.
+func fileURI(filepath string) string {
+	return fmt.Sprintf("file://%s", absPath(filepath))
+}
+
 // SyncFile ensures the LSP has the latest disk content for a file.
 // Opens the file if not already open, or sends didChange if it is.
 // Call this before any tool operation to pick up external edits
@@ -376,7 +393,8 @@ func (c *Client) SyncFile(ctx context.Context, filepath string) error {
 }
 
 func (c *Client) OpenFile(ctx context.Context, filepath string) error {
-	uri := fmt.Sprintf("file://%s", filepath)
+	filepath = absPath(filepath)
+	uri := fileURI(filepath)
 
 	c.openFilesMu.Lock()
 	if _, exists := c.openFiles[uri]; exists {
@@ -417,7 +435,8 @@ func (c *Client) OpenFile(ctx context.Context, filepath string) error {
 }
 
 func (c *Client) NotifyChange(ctx context.Context, filepath string) error {
-	uri := fmt.Sprintf("file://%s", filepath)
+	filepath = absPath(filepath)
+	uri := fileURI(filepath)
 
 	content, err := os.ReadFile(filepath)
 	if err != nil {
@@ -456,7 +475,7 @@ func (c *Client) NotifyChange(ctx context.Context, filepath string) error {
 }
 
 func (c *Client) CloseFile(ctx context.Context, filepath string) error {
-	uri := fmt.Sprintf("file://%s", filepath)
+	uri := fileURI(filepath)
 
 	c.openFilesMu.Lock()
 	if _, exists := c.openFiles[uri]; !exists {
@@ -483,7 +502,7 @@ func (c *Client) CloseFile(ctx context.Context, filepath string) error {
 }
 
 func (c *Client) IsFileOpen(filepath string) bool {
-	uri := fmt.Sprintf("file://%s", filepath)
+	uri := fileURI(filepath)
 	c.openFilesMu.RLock()
 	defer c.openFilesMu.RUnlock()
 	_, exists := c.openFiles[uri]

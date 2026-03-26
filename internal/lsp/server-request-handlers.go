@@ -61,10 +61,16 @@ func HandleRegisterCapability(params json.RawMessage) (any, error) {
 }
 
 func HandleApplyEdit(params json.RawMessage) (any, error) {
+	lspLogger.Info("HandleApplyEdit called with %d bytes", len(params))
+
 	var workspaceEdit protocol.ApplyWorkspaceEditParams
 	if err := json.Unmarshal(params, &workspaceEdit); err != nil {
+		lspLogger.Error("HandleApplyEdit: failed to unmarshal: %v", err)
 		return protocol.ApplyWorkspaceEditResult{Applied: false}, err
 	}
+
+	lspLogger.Info("HandleApplyEdit: Changes=%d, DocumentChanges=%d",
+		len(workspaceEdit.Edit.Changes), len(workspaceEdit.Edit.DocumentChanges))
 
 	// Apply the edits
 	err := utilities.ApplyWorkspaceEdit(workspaceEdit.Edit)
@@ -76,6 +82,7 @@ func HandleApplyEdit(params json.RawMessage) (any, error) {
 		}, nil
 	}
 
+	lspLogger.Info("HandleApplyEdit: successfully applied")
 	return protocol.ApplyWorkspaceEditResult{
 		Applied: true,
 	}, nil
