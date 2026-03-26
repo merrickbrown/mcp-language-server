@@ -12,6 +12,39 @@ import (
 	"github.com/isaacphi/mcp-language-server/internal/protocol"
 )
 
+// symbolMatches checks if a workspace symbol result matches the query.
+// Handles Clojure conventions (ns/name) and general languages (Type.Method).
+func symbolMatches(symbolName, query string) bool {
+	if strings.EqualFold(symbolName, query) {
+		return true
+	}
+
+	// For Clojure: query "ns/name" should match symbol "ns/name" or just "name"
+	if strings.Contains(query, "/") {
+		parts := strings.SplitN(query, "/", 2)
+		unqualified := parts[len(parts)-1]
+		if strings.EqualFold(symbolName, unqualified) {
+			return true
+		}
+	}
+
+	// For general languages: query "Type.Method" should match symbol "Method"
+	if strings.Contains(query, ".") {
+		parts := strings.Split(query, ".")
+		methodName := parts[len(parts)-1]
+		if strings.EqualFold(symbolName, methodName) {
+			return true
+		}
+	}
+
+	// Substring match: symbol "collage.core/subsystems" contains query "subsystems"
+	if strings.Contains(strings.ToLower(symbolName), strings.ToLower(query)) {
+		return true
+	}
+
+	return false
+}
+
 func FindReferences(ctx context.Context, client *lsp.Client, symbolName string) (string, error) {
 	// Get context lines from environment variable
 	contextLines := 5
@@ -21,7 +54,7 @@ func FindReferences(ctx context.Context, client *lsp.Client, symbolName string) 
 		}
 	}
 
-	// First get the symbol location like ReadDefinition does
+	// First get the symbol location via workspace/symbol
 	symbolResult, err := client.Symbol(ctx, protocol.WorkspaceSymbolParams{
 		Query: symbolName,
 	})
@@ -36,25 +69,20 @@ func FindReferences(ctx context.Context, client *lsp.Client, symbolName string) 
 
 	var allReferences []string
 	for _, symbol := range results {
-		// Handle different matching strategies based on the search term
-		if strings.Contains(symbolName, ".") {
-			// For qualified names like "Type.Method", check for various matches
-			parts := strings.Split(symbolName, ".")
-			methodName := parts[len(parts)-1]
-
-			// Try matching the unqualified method name for languages that don't use qualified names in symbols
-			if symbol.GetName() != symbolName && symbol.GetName() != methodName {
-				continue
-			}
-		} else if symbol.GetName() != symbolName {
-			// For unqualified names, exact match only
+		if !symbolMatches(symbol.GetName(), symbolName) {
 			continue
 		}
 
 		// Get the location of the symbol
 		loc := symbol.GetLocation()
 
-		// Use LSP references request with correct params structure
+		err := client.SyncFile(ctx, loc.URI.Path())
+		if err != nil {
+			toolsLogger.Error("Error opening file: %v", err)
+			continue
+		}
+
+		// Use LSP references request
 		refsParams := protocol.ReferenceParams{
 			TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 				TextDocument: protocol.TextDocumentIdentifier{
@@ -65,12 +93,6 @@ func FindReferences(ctx context.Context, client *lsp.Client, symbolName string) 
 			Context: protocol.ReferenceContext{
 				IncludeDeclaration: false,
 			},
-		}
-		// File is likely to be opened already, but may not be.
-		err := client.OpenFile(ctx, loc.URI.Path())
-		if err != nil {
-			toolsLogger.Error("Error opening file: %v", err)
-			continue
 		}
 		refs, err := client.References(ctx, refsParams)
 		if err != nil {
@@ -105,7 +127,6 @@ func FindReferences(ctx context.Context, client *lsp.Client, symbolName string) 
 			// Format locations with context
 			fileContent, err := os.ReadFile(filePath)
 			if err != nil {
-				// Log error but continue with other files
 				allReferences = append(allReferences, fileInfo+"\nError reading file: "+err.Error())
 				continue
 			}
@@ -124,7 +145,6 @@ func FindReferences(ctx context.Context, client *lsp.Client, symbolName string) 
 			// Collect lines to display using the utility function
 			linesToShow, err := GetLineRangesToDisplay(ctx, client, fileRefs, len(lines), contextLines)
 			if err != nil {
-				// Log error but continue with other files
 				continue
 			}
 
